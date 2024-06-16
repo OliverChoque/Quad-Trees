@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Descomposición de Imágenes con Quad Trees</title>
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/css/bootstrap.min.css">
+    <style>
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #f8f9fa; /* Color de fondo */
+        }
+        .container {
+            text-align: center;
+            max-width: 800px; /* Ancho máximo del contenido */
+            padding: 20px;
+        }
+        .canvas-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        canvas {
+            border: 1px solid #ccc;
+            display: block; /* Asegura que los canvas se muestren correctamente */
+            margin: 10px; /* Agrega un pequeño margen */
+        }
+        input[type=range] {
+            width: 80%;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 class="mb-4">Descomposición de Imágenes con Quad Trees</h1>
+        <input type="file" id="imageInput" accept="image/*" class="mb-3" />
+        <input type="range" id="thresholdSlider" min="0" max="255" value="10" class="form-range" />
+        <p id="thresholdValue">Umbral: 10</p>
+        <button id="buttonDecompress" class="btn btn-primary mt-3">Descomprimir</button>
+        <div class="canvas-container mt-4">
+            <canvas id="canvasOriginal" width="400" height="400"></canvas>
+            <canvas id="canvasDecompressed" width="400" height="400"></canvas>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('imageInput').addEventListener('change', function(event) {
+            const file = event.target.files[0];
+            const img = new Image();
+            const canvasOriginal = document.getElementById('canvasOriginal');
+            const ctxOriginal = canvasOriginal.getContext('2d');
+            const canvasDecompressed = document.getElementById('canvasDecompressed');
+            const ctxDecompressed = canvasDecompressed.getContext('2d');
+            
+            img.onload = function() {
+                // Definir el tamaño máximo para los canvas
+                const maxSize = 400;
+                let scale = 1;
+                if (img.width > img.height) {
+                    scale = maxSize / img.width;
+                } else {
+                    scale = maxSize / img.height;
+                }
+                
+                const newWidth = img.width * scale;
+                const newHeight = img.height * scale;
+                
+                // Ajustar el tamaño de los canvas
+                canvasOriginal.width = newWidth;
+                canvasOriginal.height = newHeight;
+                canvasDecompressed.width = newWidth;
+                canvasDecompressed.height = newHeight;
+                
+                // Dibujar la imagen original en el canvas original
+                ctxOriginal.drawImage(img, 0, 0, newWidth, newHeight);
+                
+                // Obtener los datos de escala de grises de la imagen
+                const imageData = ctxOriginal.getImageData(0, 0, newWidth, newHeight);
+                const grayData = getGrayScaleData(imageData);
+            };
+            
+            img.src = URL.createObjectURL(file);
+        });
+
+        function getGrayScaleData(imageData) {
+            const grayData = [];
+            
+            for (let y = 0; y < imageData.height; y++) {
+                grayData[y] = [];
+                
+                for (let x = 0; x < imageData.width; x++) {
+                    const index = (y * imageData.width + x) * 4;
+                    const r = imageData.data[index];
+                    const g = imageData.data[index + 1];
+                    const b = imageData.data[index + 2];
+                    const gray = (r + g + b) / 3;
+                    grayData[y][x] = gray;
+                }
+            }
+            
+            return grayData;
+        }
+
+        class QuadTree {
+            constructor(x, y, width, height, value = null) {
+                this.x = x;
+                this.y = y;
+                this.width = width;
+                this.height = height;
+                this.value = value;
+                this.children = [];
+            }
+
+            isLeaf() {
+                return this.children.length === 0;
+            }
+        }
+
+        function buildQuadTree(data, x, y, width, height, threshold, maxDepth = 5) {
+            if (isHomogeneous(data, x, y, width, height, threshold)) {
+                const avgValue = getAverageValue(data, x, y, width, height);
+                return new QuadTree(x, y, width, height, avgValue);
+            } else if (maxDepth === 0) {
+                return new QuadTree(x, y, width, height, null);
+            } else {
+                const halfWidth = Math.floor(width / 2);
+                const halfHeight = Math.floor(height / 2);
+                const quadTree = new QuadTree(x, y, width, height);
+
+                quadTree.children.push(buildQuadTree(data, x, y, halfWidth, halfHeight, threshold, maxDepth - 1));
+                quadTree.children.push(buildQuadTree(data, x + halfWidth, y, halfWidth, halfHeight, threshold, maxDepth - 1));
+                quadTree.children.push(buildQuadTree(data, x, y + halfHeight, halfWidth, halfHeight, threshold, maxDepth - 1));
+                quadTree.children.push(buildQuadTree(data, x + halfWidth, y + halfHeight, halfWidth, halfHeight, threshold, maxDepth - 1));
+
+                return quadTree;
+            }
+        }
+
+        function isHomogeneous(data, x, y, width, height, threshold) {
+            let sum = 0;
+            let sumSq = 0;
+            let count = 0;
+
+            for (let i = y; i < y + height; i++) {
+                for (let j = x; j < x + width; j++) {
+                    const value = data[i][j];
+                    sum += value;
+                    sumSq += value * value;
+                    count++;
+                }
+            }
+
+            const mean = sum / count;
+            const variance = (sumSq / count) - (mean * mean);
+
+            return variance <= threshold;
+        }
+
+        function getAverageValue(data, x, y, width, height) {
+            let sum = 0;
+            let count = 0;
+
+            for (let i = y; i < y + height; i++) {
+                for (let j = x; j < x + width; j++) {
+                    sum += data[i][j];
+                    count++;
+                }
+            }
+
+            return sum / count;
+        }
+
+        function visualizeQuadTree(quadTree, ctx, depth = 0) {
+            if (quadTree.isLeaf()) {
+                const grayValue = Math.round(quadTree.value);
+                ctx.fillStyle = `rgb(${grayValue}, ${grayValue}, ${grayValue})`;
+                ctx.fillRect(quadTree.x, quadTree.y, quadTree.width, quadTree.height);
+            } else {
+                ctx.strokeStyle = `rgba(0, 0, 0, 0.1)`;
+                ctx.strokeRect(quadTree.x, quadTree.y, quadTree.width, quadTree.height);
+                quadTree.children.forEach(child => visualizeQuadTree(child, ctx, depth + 1));
+            }
+        }
+
+        document.getElementById('buttonDecompress').addEventListener('click', function() {
+            const canvasOriginal = document.getElementById('canvasOriginal');
+            const ctxOriginal = canvasOriginal.getContext('2d');
+            const img = ctxOriginal.getImageData(0, 0, canvasOriginal.width, canvasOriginal.height);
+            const grayData = getGrayScaleData(img);
+            const threshold = parseInt(document.getElementById('thresholdSlider').value);
+
+            const quadTree = buildQuadTree(grayData, 0, 0, canvasOriginal.width, canvasOriginal.height, threshold);
+            const canvasDecompressed = document.getElementById('canvasDecompressed');
+            const ctxDecompressed = canvasDecompressed.getContext('2d');
+            visualizeQuadTree(quadTree, ctxDecompressed);
+
+            document.getElementById('thresholdValue').textContent = `Umbral: ${threshold}`;
+        });
+    </script>
+</body>
+</html>

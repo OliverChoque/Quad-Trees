@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Compresión de Imágenes con Quad Trees</title>
+    <!-- Bootstrap CSS -->
+    <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #f8f9fa;
+        }
+        .container {
+            max-width: 800px;
+            width: 100%;
+            padding: 20px;
+            background-color: #fff;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        h2 {
+            text-align: center;
+        }
+        .btn-container {
+            display: flex;
+            justify-content: center; /* Centra los botones horizontalmente */
+            margin-top: 20px;
+        }
+        .canvas-container {
+            display: flex;
+            justify-content: space-around; /* Separa los canvas */
+            margin-top: 30px;
+            text-align: center;
+            padding: 10px 0; /* Añade espacio entre la sección de canvas y los botones */
+        }
+        .canvas-container > div {
+            flex: 1; /* Hace que cada contenedor de canvas ocupe el mismo ancho */
+        }
+        canvas {
+            max-width: 100%;
+            height: auto;
+            border: 1px solid #ddd;
+            box-shadow: 0 0 5px rgba(0,0,0,0.1);
+        }
+        #stats {
+            text-align: center;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2 class="mt-4 mb-4">Compresión de Imágenes con Quad Trees</h2>
+        
+        <div class="form-group">
+            <label for="upload">Selecciona una imagen:</label>
+            <input type="file" id="upload" class="form-control-file" accept="image/*"/>
+        </div>
+
+        <div class="btn-container">
+            <button id="compressButton" class="btn btn-primary" disabled>Comprimir</button>
+            <button id="reconstructButton" class="btn btn-secondary" disabled>Reconstruir</button>
+            <button id="downloadButton" class="btn btn-success" disabled>Descargar Imagen Reconstruida</button>
+        </div>
+
+        <div class="canvas-container">
+            <div>
+                <h3>Original</h3>
+                <canvas id="originalCanvas"></canvas>
+            </div>
+            <div>
+                <h3>Reconstruida</h3>
+                <canvas id="reconstructedCanvas"></canvas>
+            </div>
+        </div>
+
+        <div id="stats" class="mt-4"></div>
+    </div>
+
+    <!-- Bootstrap JS and dependencies -->
+    <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.9.2/dist/umd/popper.min.js"></script>
+    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+
+    <script>
+        class QuadTreeNode {
+            constructor(x, y, width, height, value) {
+                this.x = x;
+                this.y = y;
+                this.width = width;
+                this.height = height;
+                this.value = value;
+                this.children = [];
+            }
+
+            isLeaf() {
+                return this.children.length === 0;
+            }
+        }
+
+        function buildQuadTree(data, width, height, x = 0, y = 0, currentWidth = width, currentHeight = height, threshold = 10) {
+            if (currentWidth <= 1 || currentHeight <= 1) {
+                return new QuadTreeNode(x, y, currentWidth, currentHeight, data[y * width + x]);
+            }
+
+            const avg = averageValue(data, width, x, y, currentWidth, currentHeight);
+            const diff = maxDifference(data, width, x, y, currentWidth, currentHeight, avg);
+
+            if (diff < threshold) {
+                return new QuadTreeNode(x, y, currentWidth, currentHeight, avg);
+            }
+
+            const halfWidth = Math.floor(currentWidth / 2);
+            const halfHeight = Math.floor(currentHeight / 2);
+
+            const node = new QuadTreeNode(x, y, currentWidth, currentHeight, avg);
+            node.children.push(buildQuadTree(data, width, height, x, y, halfWidth, halfHeight, threshold));
+            node.children.push(buildQuadTree(data, width, height, x + halfWidth, y, halfWidth, halfHeight, threshold));
+            node.children.push(buildQuadTree(data, width, height, x, y + halfHeight, halfWidth, halfHeight, threshold));
+            node.children.push(buildQuadTree(data, width, height, x + halfWidth, y + halfHeight, halfWidth, halfHeight, threshold));
+
+            return node;
+        }
+
+        function averageValue(data, width, x, y, w, h) {
+            let sum = 0;
+            let count = 0;
+            for (let i = y; i < y + h; i++) {
+                for (let j = x; j < x + w; j++) {
+                    sum += data[i * width + j];
+                    count++;
+                }
+            }
+            return sum / count;
+        }
+
+        function maxDifference(data, width, x, y, w, h, avg) {
+            let maxDiff = 0;
+            for (let i = y; i < y + h; i++) {
+                for (let j = x; j < x + w; j++) {
+                    maxDiff = Math.max(maxDiff, Math.abs(data[i * width + j] - avg));
+                }
+            }
+            return maxDiff;
+        }
+
+        function reconstructImage(node, data, width, height) {
+            if (node.isLeaf()) {
+                for (let i = node.y; i < node.y + node.height; i++) {
+                    for (let j = node.x; j < node.x + node.width; j++) {
+                        data[i * width + j] = node.value;
+                    }
+                }
+            } else {
+                node.children.forEach(child => reconstructImage(child, data, width, height));
+            }
+        }
+
+        function calculateMSE(original, reconstructed) {
+            let mse = 0;
+            for (let i = 0; i < original.length; i++) {
+                mse += Math.pow(original[i] - reconstructed[i], 2);
+            }
+            return mse / original.length;
+        }
+
+        function calculateStorageReduction(originalSize, compressedSize) {
+            return ((originalSize - compressedSize) / originalSize) * 100;
+        }
+
+        function countNodes(node) {
+            if (node.isLeaf()) {
+                return 1;
+            }
+            return 1 + node.children.reduce((sum, child) => sum + countNodes(child), 0);
+        }
+
+        function downloadImage(canvas) {
+            const link = document.createElement('a');
+            link.download = 'reconstructed_image.png';
+            link.href = canvas.toDataURL('image/png');
+            link.click();
+        }
+
+        let grayScaleData = [];
+        let imgWidth = 0;
+        let imgHeight = 0;
+        let quadTree;
+
+        document.getElementById('upload').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                const img = new Image();
+                img.onload = function() {
+                    const originalCanvas = document.getElementById('originalCanvas');
+                    const ctx = originalCanvas.getContext('2d');
+                    originalCanvas.width = img.width;
+                    originalCanvas.height = img.height;
+                    ctx.drawImage(img, 0, 0);
+                    const imgData = ctx.getImageData(0, 0, originalCanvas.width, originalCanvas.height);
+                    grayScaleData = [];
+                    for (let i = 0; i < imgData.data.length; i += 4) {
+                        const gray = 0.299 * imgData.data[i] + 0.587 * imgData.data[i + 1] + 0.114 * imgData.data[i + 2];
+                        grayScaleData.push(gray);
+                    }
+                    imgWidth = img.width;
+                    imgHeight = img.height;
+                    document.getElementById('compressButton').disabled = false;
+                };
+                img.src = event.target.result;
+            };
+            reader.readAsDataURL(file);
+        });
+
+        document.getElementById('compressButton').addEventListener('click', function() {
+            quadTree = buildQuadTree(grayScaleData, imgWidth, imgHeight);
+            const originalSize = grayScaleData.length;
+            const compressedSize = countNodes(quadTree);
+            const reductionPercentage = calculateStorageReduction(originalSize, compressedSize);
+            document.getElementById('stats').innerHTML = `
+                <p>Reducción en el almacenamiento: ${reductionPercentage.toFixed(2)}%</p>
+            `;
+            document.getElementById('reconstructButton').disabled = false;
+        });
+
+        document.getElementById('reconstructButton').addEventListener('click', function() {
+            const reconstructedData = new Array(grayScaleData.length).fill(0);
+            reconstructImage(quadTree, reconstructedData, imgWidth, imgHeight);
+
+            const mse = calculateMSE(grayScaleData, reconstructedData);
+            displayReconstructedImage(reconstructedData, imgWidth, imgHeight);
+            document.getElementById('stats').innerHTML += `
+                <p>Error Cuadrático Medio (MSE): ${mse.toFixed(2)}</p>
+            `;
+            document.getElementById('downloadButton').disabled = false;
+        });
+
+        document.getElementById('downloadButton').addEventListener('click', function() {
+            const reconstructedCanvas = document.getElementById('reconstructedCanvas');
+            downloadImage(reconstructedCanvas);
+        });
+
+        function displayReconstructedImage(data, width, height) {
+            const reconstructedCanvas = document.getElementById('reconstructedCanvas');
+            reconstructedCanvas.width = width;
+            reconstructedCanvas.height = height;
+            const ctx = reconstructedCanvas.getContext('2d');
+            const imgData = ctx.createImageData(width, height);
+            for (let i = 0; i < data.length; i++) {
+                imgData.data[i * 4] = data[i];
+                imgData.data[i * 4 + 1] = data[i];
+                imgData.data[i * 4 + 2] = data[i];
+                imgData.data[i * 4 + 3] = 255; // alpha
+            }
+            ctx.putImageData(imgData, 0, 0);
+        }
+    </script>
+</body>
+</html>
